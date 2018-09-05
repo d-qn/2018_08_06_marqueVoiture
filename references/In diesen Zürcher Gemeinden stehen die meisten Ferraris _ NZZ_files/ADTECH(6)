@@ -1,0 +1,5 @@
+document.write("<style>\n");
+document.write(".container--topnews .resor--promo .resor__item:first-of-type { padding: 0; }\n");
+document.write("</style>\n");
+
+

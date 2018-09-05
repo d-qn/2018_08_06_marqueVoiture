@@ -1,0 +1,7 @@
+document.write("<scr"+"ipt type=\"text/javascript\" class=\"teads\" async=\"true\" src=\"https://a.teads.tv/page/25525/tag\"></scr"+"ipt>\n");
+document.write("<div id=\"divVideoStepAdTop\" class=\"divVideoStep\"></div> \n");
+document.write("<div id=\"divVideoStepAdBottom\" class=\"divVideoStep\"></div>\n");
+document.write("<input type=\"hidden\" id=\"_videoStepMinifiedScript+16\" value=\"2342\" /><input type='hidden' id='_videoS tepScriptTypeV1' class='videoStepScriptType' value='19' /><div id='divVideoStep+16' class='divVideoStep'> </div>\n");
+document.write("<scr"+"ipt type=\"text/javascript\" src=\"https://aka-cdn.adtech.de/apps/261/Ad17512709St3Sz16Sq111261450V24Id7/extFile01.js\"></scr"+"ipt>\n");
+
+

@@ -1,0 +1,13 @@
+document.write("<iframe class=\"jobs-teaser-article\" width=\"300\" height=\"480\" frameborder=\"0\" src=\"https://jobs.nzz.ch/vacancy/topjobs/v/1/l/1?clicktag=https%3A%2F%2Fadserver.adtech.de%2Fadlink%2F1135%2E1%2F2945527%2F0%2F170%2FAdId%3D18786175%3BBnId%3D2%3Bguid%3DDAe25d11a7%2D997a%2D11e8%2D830b%2D00163e35b145%3Bitime%3D727797210%3Bkr2370%3D2047248%3Bkvkw%3Dzuerich%3Bkr3387%3D1642%3Bkp%3D1014560%3Bgdpr%3D0%3Blink%3D\" scrolling=\"no\"></iframe>\n");
+
+document.write("<div id='ias-727797210'></div>\n");
+(function() {
+var hw = 'width="300" height="250"';
+var size = hw.replace(/width="?(\d+)"?\s+height="?(\d+)"?/i, '$1x$2');
+var script = document.createElement('script');
+script.id = 'cis';
+script.src = 'https://adnz.co/cis/script.js?customerId=b19c7706-0fd5-449f-8511-e14255037b54&channelId=0&orderId=12425074&campaignId=18786175&placementId=2945527&publisherId=1070036&customerId=1742584&bannerId=2&timestamp=727797210&size=' + size;
+document.write(script.outerHTML);
+})();
+
+

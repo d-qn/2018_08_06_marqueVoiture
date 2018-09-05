@@ -1,0 +1,461 @@
+---
+title: "Marques de voiture par commune - Vaud & Genève"
+author: "Duc-Quang Nguyen | Tribune de Genève | Tamedia Romandie"
+date: " 2018"
+output: 
+  html_document:
+    code_folding: hide
+    echo: TRUE
+    warning: FALSE
+    message: FALSE
+    toc: yes
+    toc_depth: 3
+    toc_float: true
+    theme: simplex
+---
+
+```{r setup, include=FALSE}
+export2clean <- F
+marqueLuxe <- c('Tesla', 'Rolls-Royce', 'Lamborghini' , 
+                'Porsche', 'Bugatti', 'Bentley', 'Aston Martin', 
+                'Ferrari', 'Maserati')
+
+ge_file <- "data/Marques par communes GE.XLSX - Feuil1.csv"
+vd_file <- "input/Nombre_vhc_marque_par_commune-xlsx.csv"
+
+cleanOutput <- F
+
+require(lintr)
+require(here)
+
+library(tidyverse)
+library(magrittr)
+library(stringr)
+library(knitr)
+library(sf)
+library(tamMap)
+library(tamTheme)
+library(hrbrthemes)
+library(skimr)
+
+### Getting data in packages
+library(secret)
+### Interactive 
+library(ggiraph)
+library(htmltools)
+library(highcharter)
+```
+
+```{r VD load data}
+vdRead <- read_csv(vd_file, col_types = cols(
+  `Numéro OFS` = col_double(),
+  plz = col_double(),
+  Localité = col_character(),
+  `Genre Vhc` = col_character(),
+  Marque = col_character(),
+  marque_cleaned = col_character(),
+  Total = col_double()
+))
+
+vdTourisme <- vdRead %>% 
+  filter(`Genre Vhc` == "Voiture de tourisme") %>% 
+  select(-plz, -`Genre Vhc`) %>% 
+  # hack rename smart to micro compact car
+  mutate(marque_cleaned = str_replace(marque_cleaned, "Smart", "Micro Compact Car")) %>% 
+  mutate(marque_cleaned = toupper(marque_cleaned))
+
+if(export2clean) {
+  vdTourisme %>% 
+    group_by(marque_cleaned) %>% 
+    summarise(nb = sum(Total)) %>% 
+    ungroup() %>% 
+    arrange(desc(nb)) %>% 
+    write_csv("data/vd_marques2clean_temp.csv")  
+}
+```
+
+
+```{r GE load data}
+geRead <- read_csv(ge_file) %>% 
+  mutate(LIBELLEMARQUE = toupper(LIBELLEMARQUE))
+
+marqueAlias <- read_csv("input/consensus_marqueVoiture.csv") %>% 
+  mutate(aliases = toupper(aliases))
+mAliases <- marqueAlias$aliases %>% map(function(x) {
+  if(str_detect(x, ",")) {
+    unlist(str_split(x, ","))
+  } else {
+    x
+  }
+})
+names(mAliases) <- toupper(marqueAlias$nom)
+geRead$marque <- geRead$LIBELLEMARQUE %>% map(function(x) {
+  midx <- sapply(mAliases, function(aliases) x %in% aliases)
+  if(any(midx)) {
+    names(mAliases)[which(midx)]
+  } else {
+    x
+  }
+}) %>% unlist()
+
+
+geMarques <- geRead %>% group_by(
+  marque
+) %>% 
+  summarise(
+    nb = sum(NBR),
+    codes = str_c(unique(CODEMARQUE), collapse = ", ")
+  ) %>% 
+  ungroup() %>% 
+  arrange(desc(nb))
+
+if(export2clean) {
+  geMarques %>% write_csv("data/ge_marques2clean_temp.csv")  
+}
+
+
+
+
+```
+
+
+
+
+
+
+
+
+
+```{r map to commune, message = F}
+geos <- shp_path(y = 2018)
+muni <- st_read( geos['municipalities'],  options = "ENCODING=latin1") %>% 
+  filter(KTNR == 22) %>% 
+  select(ends_with("NR"), ends_with("NAME"))
+
+ofsid <- unique(vdTourisme$`Numéro OFS`)[which(!unique(vdTourisme$`Numéro OFS`) %in% muni$GMDNR)]
+
+missing <- vdTourisme %>% 
+  filter(`Numéro OFS` %in% ofsid) %>%
+  select( `Numéro OFS`, Localité) %>% 
+  distinct()
+
+history <- communes_history(as.Date("2000-01-01"))
+missing$gfinmut <- history %>% 
+  filter(GBFSNR %in% missing$`Numéro OFS`, GINIMUT != 1000) %>%
+    arrange(GBFSNR) %>% 
+  .$GFINMUT
+
+missing$newID  <- history[match(missing$gfinmut, history$GINIMUT), 'GBFSNR']
+missing$newLoca <- vdTourisme[match(missing$newID , vdTourisme$`Numéro OFS`), 'Localité'] %>% unlist(use.names = F)
+
+## rewrite commune and code number
+subset <- vdTourisme$`Numéro OFS` %in% missing$`Numéro OFS`
+midx <- match(vdTourisme[subset, 'Numéro OFS'] %>% 
+                unlist(use.names = F), missing$`Numéro OFS`)
+vdTourisme[subset, c('Numéro OFS', 'Localité')] <- missing[midx, 4:5]
+
+# re compute total par marque basé sur les marques nettoyées!
+vdTourisme %<>% 
+  select(-Marque) %>% 
+  rename(marque = marque_cleaned, total = Total) %>% 
+  group_by(`Numéro OFS`) %>% 
+  mutate(ctot = sum(total)) %>% 
+  ungroup()
+
+vdTourisme %<>% 
+  group_by(`Numéro OFS`, ctot, marque) %>% 
+  summarise(total = sum(total)) %>% 
+  ungroup() %>% 
+  mutate(share = (total / ctot)* 100)
+
+checktot <- vdTourisme %>% 
+  group_by(`Numéro OFS`) %>% 
+  summarise(check = sum(share)) %>% 
+  ungroup() %>% 
+  .$check
+
+stopifnot(all(near(checktot, 100)))
+```
+## Total des immatriculations selon la marque
+```{r EDA, fig.height = 7, message = F}
+totvd <- vdTourisme %>% 
+  group_by(marque) %>% 
+  summarise(totm = sum(total)) %>% 
+  ungroup() %>% 
+  arrange(desc(totm))
+
+totvd %<>% 
+    mutate(sharem = (totm / sum(totvd$totm)) * 100)
+
+totvd %>% head(50) %>% 
+  ggplot(aes(y = sharem, x = fct_reorder(marque, totm))) +
+  geom_col(aes(fill = sharem)) +
+  theme_tam() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  xlab("top 50 marques") +
+  ylab("% immatriculations VAUD") +
+  scale_fill_viridis_c(guide = F, direction = -1)  +
+  coord_flip()
+
+vdTourisme <- left_join(vdTourisme, totvd) %>% 
+  mutate(dshare = share - sharem)
+
+```
+
+```{r EDA distrib, message = F, eval = F}
+gh <- vdTourisme %>% 
+  filter(marque %in% (totvd %>% head(15) %>% .$marque)) %>% 
+  ggplot(aes(x = share)) +
+  geom_histogram(bins = 100, fill = "darkblue") + 
+  facet_wrap(~marque, ncol = 3) +
+  theme_ipsum_tw()
+gh + ggtitle("Distribution du % des 15 principales marques par commune vaudoise")
+
+gh %+% vdTourisme[vdTourisme$marque %in% marqueLuxe,] + 
+  ggtitle("Distribution du % des marques de luxe par commune")
+```
+
+
+## Pourcentage des immatriculations par marque et par commune
+
+### Pour les 10 marques principales
+
+*Attention l'échelle des couleurs varie*
+
+* Davantage de marques allemandes "haut de gamme" (Audi + Mercedes-Benz + BMW) dans les communes le long du lac (voir dernière carte)
+* Volkwagen est vraiment la voiture du peuple. Cette marque est de loin la plus répandue et uniformément distribuée dans le canton.
+* 
+
+```{r map EDA, fig.height = 12, out.width= '100%', message = F}
+library(patchwork)
+vdTourisme %<>% 
+  rename(GMDNR = `Numéro OFS`)
+
+vdmap <- left_join(vdTourisme, muni)
+
+marque_subset <- totvd %>% head(10) %>% .$marque
+
+maps <- marque_subset %>% map(function(m) {
+  vdmap %>% 
+    filter(marque == m) %>% 
+    ggplot() +
+    geom_sf(aes(fill = share), lwd = 0) +
+    theme_map() +
+    theme(
+      legend.key.size = unit(0.7, "lines")
+          ) + 
+    scale_fill_viridis_c(option = "C", direction = -1, name = "%") +
+    ggtitle(m)  
+})
+
+maps[[1]] + maps[[2]] + maps[[3]] + maps[[4]] + maps[[5]] + maps[[6]] + maps[[7]] + maps[[8]] + maps[[9]] + maps[[10]] + plot_layout(ncol = 2)
+```
+
+### Marques de luxe uniquement 
+
+```{r EDA map luxe, fig.height = 12, out.width= '100%', message = F}
+maps <- marqueLuxe %>% map(function(m) {
+  left_join(muni, vdTourisme %>% filter(marque == m)) %>% 
+    mutate(share = ifelse(is.na(share), 0, share)) %>% 
+    ggplot() +
+    geom_sf(aes(fill = share), lwd = 0) +
+    theme_map() +
+    theme(legend.key.size = unit(0.8, "lines")) + 
+    scale_fill_viridis_c(option = "A", direction = -1, name = "%") +
+    ggtitle(m) +
+    coord_sf(datum = NA, expand = F)
+})
+
+maps[[1]] + maps[[2]] + maps[[3]] + maps[[4]] + maps[[5]] + maps[[6]] + maps[[7]] + maps[[8]] + maps[[9]] + plot_layout(ncol = 2)
+
+tmp <- left_join(muni, 
+          vdTourisme %>% 
+            filter(marque %in% marqueLuxe) %>% 
+            group_by(GMDNR) %>% 
+            summarise(
+              totaL = sum(total),
+              share = (totaL / unique(ctot)) * 100
+              ) %>% 
+            ungroup())
+
+
+tmp %<>% mutate(share = ifelse(is.na(share), 0, share))
+
+mapl <- tmp %>% ggplot() +
+    geom_sf(aes(fill = share), lwd = 0) +
+    theme_map() +
+    theme(legend.key.size = unit(0.8, "lines")) + 
+    scale_fill_viridis_c(option = "D", direction = -1, name = "%") +
+    ggtitle("Total des: ", str_c(marqueLuxe, collapse = ", ")) +
+    coord_sf(datum = NA, expand = F)
+mapl
+
+tmp %>% 
+  arrange(desc(share)) %>% 
+  as.data.frame() %>% 
+  select(GMDNAME, GMDNR, share, totaL) %>% 
+  head(5) %>% knitr::kable()
+
+tmp %>% 
+  arrange(desc(totaL)) %>% 
+  as.data.frame() %>% 
+  select(GMDNAME, GMDNR, share, totaL) %>% 
+  head(5) %>% knitr::kable()
+
+```
+
+### Marques allemandes haut de gamme
+```{r map allemandes, fig.height = 12, out.width= '100%', message = F}
+# sum the 3 german brands
+tmp <- left_join(muni, 
+          vdTourisme %>% 
+            filter(marque %in% c('Audi', 'Mercedes-Benz', 'BMW')) %>% 
+            group_by(GMDNR) %>% 
+            summarise(share = (sum(total) / unique(ctot)) * 100) %>% 
+            ungroup())
+mapl %+% tmp + 
+  labs(title = "Distribution des allemandes haut de gamme par commune",
+       subtitle = "% Audi + Mercedes-Benz + BMW ")
+```
+
+### Ferrari uniquement
+
+```{r viz ferrari, out.width= '100%', message = F}
+singleBrandGeo <- function(marq = "Ferrari") {
+  left_join(muni, 
+            vdTourisme %>% 
+              filter(marque == marq)
+  ) %>% 
+    mutate(
+      total = ifelse(is.na(total), 0, total),
+      share = ifelse(is.na(share), 0, share)
+    )
+}
+singleBrandMap <- function(dd) {
+ dd %>% ggplot() +
+    theme_map() +
+    theme(legend.key.size = unit(0.8, "lines")) + 
+    coord_sf(datum = NA, expand = F)
+}
+
+tmp <- singleBrandGeo(marq = "Ferrari")
+bm <- singleBrandMap(tmp)
+
+fm1 <- bm + 
+  scale_fill_viridis_c(option = "D", direction = -1, name = "%") +
+  geom_sf(aes(fill = total), lwd = 0) +
+  ggtitle("# Ferrari par commune")
+
+fm2 <- bm + 
+  scale_fill_viridis_c(option = "D", direction = -1, name = "%") +
+  geom_sf(aes(fill = share), lwd = 0) +
+  ggtitle("% Ferrari par commune")
+
+fm1 + fm2
+    
+tmp %>% 
+  arrange(desc(share)) %>% 
+  as.data.frame() %>% 
+  select(GMDNAME, GMDNR, share, total) %>% 
+  head(10) %>% knitr::kable()
+
+tmp %>% 
+  arrange(desc(total)) %>% 
+  as.data.frame() %>% 
+  select(GMDNAME, GMDNR, share, total) %>% 
+  head(10) %>% knitr::kable()
+
+```
+#### Tesla
+ 
+ * 593 Tesla immatriculées dans le canton de Vaud, soit 0.143% des voitures de tourisme. 
+```{r tesla 24h}
+totvd %>% filter(marque == "Tesla")
+brks <-  seq(0, 1.3, 0.1)
+brks_names <- c("0-0.1%", "0.1-0.2%", "0.2-0.3%",
+                 "0.3-0.4%", "0.4-0.5%", "0.5-0.6%",
+                 "0.6-0.7%", "0.7-0.8%", "0.8-0.9%",
+                 "0.9-1.0%", "1.0-1.1%", "1.1-1.2%",
+                 "1.2-1.3%")
+tes <- singleBrandGeo(marq = "Tesla") %>% 
+  mutate(bins = cut(share, breaks = brks, labels = brks_names, right = F))
+tesb <- singleBrandMap(tes)
+
+# load lac
+
+# loop and load the geo data in a named list
+shp_ch_geodata <- geos[c('lakes', 'cantons')] %>% map(function(x) {
+  layerName <- st_layers(x)
+  st_read(x, layer = layerName$name, 
+          options = "ENCODING=latin1", stringsAsFactors = F) %>% 
+  select(ends_with("NR"), ends_with("NAME"))
+})
+
+tesb + 
+  geom_sf(aes(fill = bins), lwd = 0) +
+  geom_sf(data = shp_ch_geodata$cantons %>% filter(KTNR == 22), 
+          fill = NA, lwd = 0.15, colour = "darkgrey") +
+  geom_sf(data = shp_ch_geodata$lakes %>% 
+            filter(SEENAME %in% c("Lac de Neuchâtel", "Lac Léman", "Lac de Joux")), fill = "#9fbfdf", lwd = 0) +
+  labs(
+    title = "593 Teslas immatriculées sur Vaud,\nsoit que 0.14% des voitures de tourisme",
+    subtitle = "Seul le village de Buchillon a plus que 1% de Tesla immatriculée",
+    caption = "source: Service des automobiles | 24 heures | @duc_qn") +
+  theme_map(base_family = font_tw) +
+  theme(legend.position = 'top', 
+        plot.caption = element_text(
+          size = 8, hjust = 1, colour = "grey"),
+        plot.subtitle = element_text(
+          size = 14, hjust = 0, colour = "darkgrey"),
+        plot.title = element_text(
+          face = "bold", size = 19, hjust = 0, colour = "#E30613"),
+        legend.key = element_blank(),
+        plot.margin = margin(8, 5, 2, 1, "pt"),
+        ) +
+  scale_fill_viridis_d(
+    option = "B", 
+    direction = -1,
+    guide = guide_legend(
+      title.position = "top",
+      nrow = 2, direction = 'horizontal', 
+      label.hjust = 0, label.position = 'bottom', 
+      byrow = F,
+      keywidth = 0.15, 
+      keyheight = 0.3, title = "% Tesla immatriculée par commune"))
+
+
+tes %>% 
+  arrange(desc(share)) %>% 
+  as.data.frame() %>% 
+  select(GMDNAME, GMDNR, share, total) %>% 
+  head(10) %>% knitr::kable()
+
+```
+
+
+
+[24h - Bursinel, des villas cossues mais coupées du monde, 2011](https://www.24heures.ch/vaud-regions/la-cote/Bursinel-des-villas-cossues-mais-coupees-du-monde/story/18728358?dossier_id=1195)
+
+
+```{r move production graphics}
+if (cleanOutput) {
+  files <- c("basename_.*html", "js")
+
+  if (!dir.exists("output/bak")) {
+    dir.create("output/bak")
+  } else {
+    list.files("output/bak/", full.names = T, recursive = T) %>% file.remove()
+  }
+  ori.files <- list.files("output", full.names = T)[list.files("output") != "bak"]
+  file.copy(ori.files, to = "output/bak/", recursive = T)
+  unlink(ori.files, recursive = T)
+
+  files_tomove <- lapply(files, function(x) list.files(pattern = x)) %>% unlist()
+  file.copy(files_tomove, "output", recursive = T)
+  unlink(files_tomove, recursive = T)
+}
+```
+
+```{r linting, eval = F}
+lintr::lint(knitr::current_input())
+```

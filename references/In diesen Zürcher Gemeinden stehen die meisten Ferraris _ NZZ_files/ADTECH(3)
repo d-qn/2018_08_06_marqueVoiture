@@ -1,0 +1,11 @@
+google_ad_client = "ca-pub-8490317736235111";
+/* nzz.ch_desktop_halfpage */
+google_ad_slot = "2328895428";
+google_ad_width = 300;
+google_ad_height = 600;
+
+document.write("<scr"+"ipt type=\"text/javascript\"\n");
+document.write("src=\"//pagead2.googlesyndication.com/pagead/show_ads.js\">\n");
+document.write("</scr"+"ipt>\n");
+
+

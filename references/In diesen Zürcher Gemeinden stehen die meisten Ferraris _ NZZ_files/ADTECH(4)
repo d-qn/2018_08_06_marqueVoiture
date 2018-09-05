@@ -1,0 +1,7 @@
+document.write("<style>\n");
+document.write(".passback-appnexus a { padding: 0 !important;}\n");
+document.write("</style>\n");
+document.write("<SCR"+"IPT SRC=\"https://secure.adnxs.com/ttj?id=9747472&size=994x250&promo_sizes=970x250&kw_position=wideboard_2&promo_alignment=none&cb=727797967\" TYPE=\"text/javascript\"></SCR"+"IPT>\n");
+
+
+
